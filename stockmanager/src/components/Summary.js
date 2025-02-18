@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
-import { Pie } from 'react-chartjs-2';
+import { Doughnut } from 'react-chartjs-2';
 import './Summary.css';
 
 // Chart.js 컴포넌트 등록
@@ -188,15 +188,15 @@ const Summary = ({ stocks }) => {
       <div className="charts-container">
         <div className="chart-item">
           <h3>섹터별 비중</h3>
-          <Pie data={createChartData(summaryData.sectorData, '섹터별 비중')} />
+          <Doughnut data={createChartData(summaryData.sectorData, '섹터별 비중')} />
         </div>
         <div className="chart-item">
           <h3>카테고리별 비중</h3>
-          <Pie data={createChartData(summaryData.categoryData, '카테고리별 비중')} />
+          <Doughnut data={createChartData(summaryData.categoryData, '카테고리별 비중')} />
         </div>
         <div className="chart-item">
           <h3>통화별 비중</h3>
-          <Pie data={createChartData(summaryData.currencyData, '통화별 비중')} />
+          <Doughnut data={createChartData(summaryData.currencyData, '통화별 비중')} />
         </div>
       </div>
     </div>
