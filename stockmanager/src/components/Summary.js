@@ -1,10 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Doughnut } from 'react-chartjs-2';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
 import './Summary.css';
 
 // Chart.js 컴포넌트 등록
-ChartJS.register(ArcElement, Tooltip, Legend);
+ChartJS.register(ArcElement, Tooltip, Legend, ChartDataLabels);
 
 const Summary = ({ stocks }) => {
   const [exchangeRate, setExchangeRate] = useState(1450); // 기본값 설정
@@ -57,6 +58,14 @@ const Summary = ({ stocks }) => {
       return acc;
     }, {});
 
+    // 변동성별 비중
+    const volatilityData = validStocks.reduce((acc, stock) => {
+      if (!stock.trades.length) return acc;
+      const volatility = stock.volatility || '선택';
+      acc[volatility] = (acc[volatility] || 0) + parseFloat(stock.weight || 0);
+      return acc;
+    }, {});
+
     // 전체 투자 현황
     const totalInvestment = validStocks.reduce((sum, stock) => {
       if (!stock.trades.length) return sum;
@@ -95,6 +104,7 @@ const Summary = ({ stocks }) => {
       sectorData,
       categoryData,
       currencyData,
+      volatilityData,
       totalInvestment,
       totalValue,
       totalProfit,
@@ -119,6 +129,46 @@ const Summary = ({ stocks }) => {
     }]
   });
 
+  // 차트 옵션 수정
+  const chartOptions = {
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          padding: 20,
+          font: {
+            size: 12
+          }
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            const label = context.label || '';
+            const value = context.raw || 0;
+            const actualValue = Math.round((value / 100) * summaryData.totalValue);
+            return `${label}: ${actualValue.toLocaleString()}원 (${value.toFixed(1)}%)`;
+          }
+        }
+      },
+      datalabels: {
+        display: true,
+        color: '#000',
+        font: {
+          weight: 'bold',
+          size: 12
+        },
+        formatter: (value, context) => {
+          const label = context.chart.data.labels[context.dataIndex];
+          return `${label}\n${value.toFixed(1)}%`;
+        },
+        align: 'center',
+        anchor: 'center',
+        textAlign: 'center'
+      }
+    }
+  };
+
   return (
     <div className="summary-container">
       <div className="summary-header">
@@ -128,17 +178,17 @@ const Summary = ({ stocks }) => {
       <div className="investment-summary">
         <div className="summary-item">
           <h3>총 투자금액</h3>
-          <p>{summaryData.totalInvestment.toLocaleString()}원</p>
+          <p>{Math.round(summaryData.totalInvestment).toLocaleString()}원</p>
         </div>
         <div className="summary-item">
           <h3>총 평가금액</h3>
-          <p>{summaryData.totalValue.toLocaleString()}원</p>
+          <p>{Math.round(summaryData.totalValue).toLocaleString()}원</p>
         </div>
         <div className="summary-item">
           <h3>총 평가손익</h3>
           <p style={{ color: summaryData.totalProfit > 0 ? 'red' : 'blue' }}>
             {summaryData.totalProfit > 0 ? '+' : ''}
-            {summaryData.totalProfit.toLocaleString()}원
+            {Math.round(summaryData.totalProfit).toLocaleString()}원
           </p>
         </div>
         <div className="summary-item">
@@ -188,15 +238,31 @@ const Summary = ({ stocks }) => {
       <div className="charts-container">
         <div className="chart-item">
           <h3>섹터별 비중</h3>
-          <Doughnut data={createChartData(summaryData.sectorData, '섹터별 비중')} />
+          <Doughnut 
+            data={createChartData(summaryData.sectorData, '섹터별 비중')} 
+            options={chartOptions}
+          />
         </div>
         <div className="chart-item">
           <h3>카테고리별 비중</h3>
-          <Doughnut data={createChartData(summaryData.categoryData, '카테고리별 비중')} />
+          <Doughnut 
+            data={createChartData(summaryData.categoryData, '카테고리별 비중')} 
+            options={chartOptions}
+          />
         </div>
         <div className="chart-item">
           <h3>통화별 비중</h3>
-          <Doughnut data={createChartData(summaryData.currencyData, '통화별 비중')} />
+          <Doughnut 
+            data={createChartData(summaryData.currencyData, '통화별 비중')} 
+            options={chartOptions}
+          />
+        </div>
+        <div className="chart-item">
+          <h3>변동성별 비중</h3>
+          <Doughnut 
+            data={createChartData(summaryData.volatilityData, '변동성별 비중')} 
+            options={chartOptions}
+          />
         </div>
       </div>
     </div>

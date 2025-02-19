@@ -10,6 +10,9 @@ const areEqual = (prevProps, nextProps) => {
   return JSON.stringify(prevProps.stocks) === JSON.stringify(nextProps.stocks);
 };
 
+// 상단에 변동성 옵션 상수 추가
+const VOLATILITY_OPTIONS = ['선택', '변동적', '중립적', '안정적'];
+
 export const StockTable = ({ stocks }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -17,7 +20,8 @@ export const StockTable = ({ stocks }) => {
   const [newStock, setNewStock] = useState({
     ticker: '',
     sector: '',
-    category: ''
+    category: '',
+    volatility: '선택'
   });
   const [newTrade, setNewTrade] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -37,6 +41,80 @@ export const StockTable = ({ stocks }) => {
     price: '',
     quantity: ''
   });
+  const [sortConfig, setSortConfig] = useState({
+    key: null,
+    direction: 'ascending'
+  });
+
+  // 정렬 함수 추가
+  const requestSort = (key) => {
+    let direction = 'descending';
+    if (sortConfig.key === key && sortConfig.direction === 'descending') {
+      direction = 'ascending';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  // 정렬된 데이터 가져오기
+  const getSortedStocks = (stocksToSort) => {
+    if (!sortConfig.key) return stocksToSort;
+
+    return [...stocksToSort].sort((a, b) => {
+      let aValue, bValue;
+      
+      switch(sortConfig.key) {
+        case 'sector':
+        case 'category':
+        case 'volatility':
+          aValue = a[sortConfig.key] || '';
+          bValue = b[sortConfig.key] || '';
+          break;
+        case 'totalInvestment':
+          aValue = Array.isArray(a.trades) ? a.trades.reduce((sum, trade) => 
+            sum + (parseFloat(trade.price) * parseFloat(trade.quantity)), 0) : 0;
+          bValue = Array.isArray(b.trades) ? b.trades.reduce((sum, trade) => 
+            sum + (parseFloat(trade.price) * parseFloat(trade.quantity)), 0) : 0;
+          break;
+        case 'avgPrice':
+        case 'currentPrice':
+          aValue = parseFloat(a[sortConfig.key]) || 0;
+          bValue = parseFloat(b[sortConfig.key]) || 0;
+          break;
+        case 'evaluationValue':
+          aValue = (a.currentPrice * a.totalQuantity) || 0;
+          bValue = (b.currentPrice * b.totalQuantity) || 0;
+          break;
+        case 'profit':
+          aValue = parseFloat(a.profit) || 0;
+          bValue = parseFloat(b.profit) || 0;
+          break;
+        case 'profitRate':
+          aValue = parseFloat(a.profitRate) || 0;
+          bValue = parseFloat(b.profitRate) || 0;
+          break;
+        case 'weight':
+          aValue = parseFloat(a.weight) || 0;
+          bValue = parseFloat(b.weight) || 0;
+          break;
+        default:
+          return 0;
+      }
+
+      if (aValue < bValue) {
+        return sortConfig.direction === 'ascending' ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return sortConfig.direction === 'ascending' ? 1 : -1;
+      }
+      return 0;
+    });
+  };
+
+  // 정렬 방향 표시 아이콘
+  const getSortDirectionIcon = (key) => {
+    if (sortConfig.key !== key) return '↕️';
+    return sortConfig.direction === 'ascending' ? '↑' : '↓';
+  };
 
   // 주식 현재가 업데이트 함수
   const updateStockPrices = useCallback(async (existingTickers) => {
@@ -282,7 +360,7 @@ export const StockTable = ({ stocks }) => {
       await recalculateWeights();
       
       setShowAddModal(false);
-      setNewStock({ ticker: '', sector: '', category: '' });
+      setNewStock({ ticker: '', sector: '', category: '', volatility: '선택' });
       
       console.log("Stock added successfully");
     } catch (error) {
@@ -649,7 +727,7 @@ export const StockTable = ({ stocks }) => {
     if (!/^\d+$/.test(ticker)) {
       return null;
     }
-    return `https://finance.naver.com/item/coinfo.naver?code=${ticker}`;
+    return `https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx?cn=&cmp_cd=${ticker}`;
   };
 
   // 거래내역 수정 모달 열기
@@ -744,21 +822,40 @@ export const StockTable = ({ stocks }) => {
           <tr>
             <th>종목코드</th>
             <th>회사이름</th>
-            <th>섹터</th>
-            <th>카테고리</th>
-            <th>총투자금액</th>
-            <th>평균매수가격</th>
-            <th>현재가격</th>
-            <th>평가수익</th>
-            <th>수익률</th>
-            <th>비중</th>
+            <th onClick={() => requestSort('sector')} style={{cursor: 'pointer'}}>
+              섹터 {getSortDirectionIcon('sector')}
+            </th>
+            <th onClick={() => requestSort('category')} style={{cursor: 'pointer'}}>
+              카테고리 {getSortDirectionIcon('category')}
+            </th>
+            <th onClick={() => requestSort('volatility')} style={{cursor: 'pointer'}}>
+              변동성 {getSortDirectionIcon('volatility')}
+            </th>
+            <th onClick={() => requestSort('totalInvestment')} style={{cursor: 'pointer'}}>
+              총투자금액 {getSortDirectionIcon('totalInvestment')}
+            </th>
+            <th onClick={() => requestSort('avgPrice')} style={{cursor: 'pointer'}}>
+              평균매수가격 {getSortDirectionIcon('avgPrice')}
+            </th>
+            <th onClick={() => requestSort('currentPrice')} style={{cursor: 'pointer'}}>
+              현재가격 {getSortDirectionIcon('currentPrice')}
+            </th>
+            <th onClick={() => requestSort('evaluationValue')} style={{cursor: 'pointer'}}>
+              평가금액(평가수익) {getSortDirectionIcon('evaluationValue')}
+            </th>
+            <th onClick={() => requestSort('profitRate')} style={{cursor: 'pointer'}}>
+              수익률 {getSortDirectionIcon('profitRate')}
+            </th>
+            <th onClick={() => requestSort('weight')} style={{cursor: 'pointer'}}>
+              비중 {getSortDirectionIcon('weight')}
+            </th>
             <th>상세</th>
             <th>기업정보</th>
             <th>삭제</th>
           </tr>
         </thead>
         <tbody>
-          {stocks.map((stock) => {
+          {getSortedStocks(stocks).map((stock) => {
             // trades가 배열이 아닐 경우 빈 배열로 초기화
             const trades = Array.isArray(stock.trades) ? stock.trades : [];
             
@@ -829,11 +926,24 @@ export const StockTable = ({ stocks }) => {
                     stock.category
                   )}
                 </td>
+                <td>
+                  <select
+                    value={stock.volatility || '선택'}
+                    onChange={(e) => handleEditField(stock.ticker, 'volatility', e.target.value)}
+                    className="form-select form-select-sm"
+                  >
+                    {VOLATILITY_OPTIONS.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </td>
                 <td>{totalInvestment.toLocaleString()}</td>
                 <td>{parseFloat(stock.avgPrice).toLocaleString()}</td>
                 <td>{parseFloat(stock.currentPrice).toLocaleString()}</td>
                 <td style={profitStyle}>
-                  {formattedProfit}
+                  {Number(stock.currentPrice * stock.totalQuantity).toLocaleString()}원
+                  <br />
+                  ({formattedProfit})
                 </td>
                 <td style={profitRateStyle}>
                   {formattedProfitRate}%
@@ -908,11 +1018,20 @@ export const StockTable = ({ stocks }) => {
               value={newStock.category}
               onChange={(e) => setNewStock({...newStock, category: e.target.value})}
             />
+            <select
+              value={newStock.volatility}
+              onChange={(e) => setNewStock({...newStock, volatility: e.target.value})}
+              className="form-select"
+            >
+              {VOLATILITY_OPTIONS.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
             <div className="modal-buttons">
               <button onClick={handleAddStock}>새 주식 추가</button>
               <button onClick={() => {
                 setShowAddModal(false);
-                setNewStock({ ticker: '', sector: '', category: '' });
+                setNewStock({ ticker: '', sector: '', category: '', volatility: '선택' });
               }}>취소</button>
             </div>
           </div>
