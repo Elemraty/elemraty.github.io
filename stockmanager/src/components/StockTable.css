@@ -354,4 +354,18 @@
 .chart-modal .modal-body {
   height: calc(100% - 60px);
   padding: 20px;
+}
+
+.total-row {
+  background-color: #f8f9fa;
+  font-weight: bold;
+}
+
+.total-row td {
+  border-top: 2px solid #dee2e6;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.cash-row {
+  background-color: #fff;
 } 

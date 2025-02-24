@@ -7,7 +7,7 @@ import './Summary.css';
 // Chart.js 컴포넌트 등록
 ChartJS.register(ArcElement, Tooltip, Legend, ChartDataLabels);
 
-const Summary = ({ stocks }) => {
+const Summary = ({ stocks, cashAmount }) => {
   const [exchangeRate, setExchangeRate] = useState(1450); // 기본값 설정
 
   useEffect(() => {
@@ -37,7 +37,8 @@ const Summary = ({ stocks }) => {
     const sectorData = validStocks.reduce((acc, stock) => {
       if (!stock.trades.length) return acc;
       const sector = stock.sector || '미분류';
-      acc[sector] = (acc[sector] || 0) + parseFloat(stock.weight || 0);
+      const weight = parseFloat(stock.weight || 0);
+      if (weight > 0) acc[sector] = (acc[sector] || 0) + weight;
       return acc;
     }, {});
 
@@ -45,7 +46,8 @@ const Summary = ({ stocks }) => {
     const categoryData = validStocks.reduce((acc, stock) => {
       if (!stock.trades.length) return acc;
       const category = stock.category || '미분류';
-      acc[category] = (acc[category] || 0) + parseFloat(stock.weight || 0);
+      const weight = parseFloat(stock.weight || 0);
+      if (weight > 0) acc[category] = (acc[category] || 0) + weight;
       return acc;
     }, {});
 
@@ -54,7 +56,8 @@ const Summary = ({ stocks }) => {
       if (!stock.trades.length) return acc;
       const isUSStock = !/^\d+$/.test(stock.ticker);
       const type = isUSStock ? 'USD' : 'KRW';
-      acc[type] = (acc[type] || 0) + parseFloat(stock.weight || 0);
+      const weight = parseFloat(stock.weight || 0);
+      if (weight > 0) acc[type] = (acc[type] || 0) + weight;
       return acc;
     }, {});
 
@@ -62,20 +65,46 @@ const Summary = ({ stocks }) => {
     const volatilityData = validStocks.reduce((acc, stock) => {
       if (!stock.trades.length) return acc;
       const volatility = stock.volatility || '선택';
-      acc[volatility] = (acc[volatility] || 0) + parseFloat(stock.weight || 0);
+      const weight = parseFloat(stock.weight || 0);
+      if (weight > 0) acc[volatility] = (acc[volatility] || 0) + weight;
       return acc;
     }, {});
 
     // 전체 투자 현황
     const totalInvestment = validStocks.reduce((sum, stock) => {
       if (!stock.trades.length) return sum;
+      const trades = stock.trades;
       const isUSStock = !/^\d+$/.test(stock.ticker);
       
-      return sum + stock.trades.reduce((acc, trade) => {
-        const amount = parseFloat(trade.price) * parseFloat(trade.quantity);
-        // API에서 가져온 환율 사용
-        return acc + (isUSStock ? amount * exchangeRate : amount);
+      // 현재 보유 수량 계산
+      const currentQuantity = trades.reduce((sum, t) => {
+        if (t.type === 'buy') return sum + parseFloat(t.quantity);
+        if (t.type === 'sell') return sum - parseFloat(t.quantity);
+        return sum;
       }, 0);
+
+      // 현재 보유 수량이 있는 경우만 계산
+      if (currentQuantity > 0) {
+        // 매수 거래만 고려하여 평균매수가 계산
+        const totalBuyCost = trades.reduce((sum, t) => {
+          if (t.type === 'buy') {
+            const amount = parseFloat(t.price) * parseFloat(t.quantity);
+            return sum + (isUSStock ? amount * exchangeRate : amount);
+          }
+          return sum;
+        }, 0);
+
+        const totalBuyQuantity = trades.reduce((sum, t) => {
+          if (t.type === 'buy') return sum + parseFloat(t.quantity);
+          return sum;
+        }, 0);
+
+        // 현재 보유 수량에 대한 평균매수단가 기준 투자금액 계산
+        const avgPrice = totalBuyQuantity > 0 ? totalBuyCost / totalBuyQuantity : 0;
+        return sum + (avgPrice * currentQuantity);
+      }
+      
+      return sum;
     }, 0);
 
     const totalValue = validStocks.reduce((sum, stock) => {
@@ -93,11 +122,20 @@ const Summary = ({ stocks }) => {
     // 수익/손실 종목 개수 계산
     const profitStocks = validStocks.reduce((acc, stock) => {
       if (!stock.trades.length) return acc;
-      const profit = parseFloat(stock.profit || 0);
-      return {
-        positive: acc.positive + (profit > 0 ? 1 : 0),
-        negative: acc.negative + (profit < 0 ? 1 : 0)
-      };
+      const currentQuantity = stock.trades.reduce((sum, t) => {
+        if (t.type === 'buy') return sum + parseFloat(t.quantity);
+        if (t.type === 'sell') return sum - parseFloat(t.quantity);
+        return sum;
+      }, 0);
+      
+      if (currentQuantity > 0) {
+        const profit = parseFloat(stock.profit || 0);
+        return {
+          positive: acc.positive + (profit > 0 ? 1 : 0),
+          negative: acc.negative + (profit < 0 ? 1 : 0)
+        };
+      }
+      return acc;
     }, { positive: 0, negative: 0 });
 
     return {
@@ -113,21 +151,31 @@ const Summary = ({ stocks }) => {
     };
   }, [stocks, exchangeRate]); // exchangeRate를 의존성 배열에 추가
 
-  const createChartData = (data, label) => ({
-    labels: Object.keys(data),
-    datasets: [{
-      label,
-      data: Object.values(data),
-      backgroundColor: [
-        '#FF6384',
-        '#36A2EB',
-        '#FFCE56',
-        '#4BC0C0',
-        '#9966FF',
-        '#FF9F40'
-      ]
-    }]
-  });
+  const createChartData = (data, label) => {
+    // 보유 주식의 총 가치 계산 (현금 제외)
+    const totalStockValue = Object.values(data).reduce((sum, value) => sum + value, 0);
+    
+    // 비중 계산 시 총 주식 가치 기준으로 계산
+    const chartData = {
+      labels: Object.keys(data).filter(key => data[key] > 0),
+      datasets: [{
+        label,
+        data: Object.values(data)
+          .filter(value => value > 0)
+          .map(value => (value / totalStockValue) * 100), // 현금 제외한 비중 계산
+        backgroundColor: [
+          '#FF6384',
+          '#36A2EB',
+          '#FFCE56',
+          '#4BC0C0',
+          '#9966FF',
+          '#FF9F40'
+        ]
+      }]
+    };
+
+    return chartData;
+  };
 
   // 차트 옵션 수정
   const chartOptions = {
@@ -146,6 +194,7 @@ const Summary = ({ stocks }) => {
           label: function(context) {
             const label = context.label || '';
             const value = context.raw || 0;
+            // 현금을 제외한 총 주식 가치 기준으로 실제 금액 계산
             const actualValue = Math.round((value / 100) * summaryData.totalValue);
             return `${label}: ${actualValue.toLocaleString()}원 (${value.toFixed(1)}%)`;
           }
@@ -169,6 +218,14 @@ const Summary = ({ stocks }) => {
     }
   };
 
+  // 전체 자산 (주식 + 현금)
+  const totalAssets = useMemo(() => {
+    const stocksTotal = stocks.reduce((sum, stock) => {
+      return sum + (stock.currentPrice * stock.totalQuantity);
+    }, 0);
+    return stocksTotal + cashAmount;
+  }, [stocks, cashAmount]);
+
   return (
     <div className="summary-container">
       <div className="summary-header">
@@ -176,6 +233,10 @@ const Summary = ({ stocks }) => {
       </div>
       
       <div className="investment-summary">
+        <div className="summary-item">
+          <h3>전체 보유자산</h3>
+          <p>{Math.round(totalAssets).toLocaleString()}원</p>
+        </div>
         <div className="summary-item">
           <h3>총 투자금액</h3>
           <p>{Math.round(summaryData.totalInvestment).toLocaleString()}원</p>

@@ -5,10 +5,12 @@ import { signOut } from 'firebase/auth';
 import StockTable from '../components/StockTable';
 import Summary from '../components/Summary';
 import './Main.css';
+import { getDatabase, get } from 'firebase/database';
 
 function Main() {
   const [activeTab, setActiveTab] = useState('summary');
   const [stocks, setStocks] = useState([]);
+  const [cashAmount, setCashAmount] = useState(0);
 
   useEffect(() => {
     const userStocksRef = ref(database, `users/${auth.currentUser.uid}/stocks`);
@@ -29,6 +31,24 @@ function Main() {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const fetchCashAmount = async () => {
+      try {
+        const db = getDatabase();
+        const userId = auth.currentUser.uid;
+        const cashRef = ref(db, `users/${userId}/cash`);
+        const snapshot = await get(cashRef);
+        if (snapshot.exists()) {
+          setCashAmount(snapshot.val().amount || 0);
+        }
+      } catch (error) {
+        console.error("Error fetching cash amount:", error);
+      }
+    };
+
+    fetchCashAmount();
   }, []);
 
   const handleLogout = () => {
@@ -57,12 +77,8 @@ function Main() {
       </div>
 
       <div className="tab-content">
-        {activeTab === 'summary' && (
-          <div className="summary-tab">
-            <Summary stocks={stocks} />
-          </div>
-        )}
-        {activeTab === 'table' && <StockTable stocks={stocks} />}
+        {activeTab === 'summary' && <Summary stocks={stocks} cashAmount={cashAmount} />}
+        {activeTab === 'table' && <StockTable stocks={stocks} onCashUpdate={setCashAmount} />}
       </div>
     </div>
   );

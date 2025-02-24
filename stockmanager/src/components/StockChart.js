@@ -195,40 +195,65 @@ const StockChart = ({ stock, trades }) => {
   const ma120 = calculateMA(chartData.close, 120);
 
   // 거래 표시용 annotations
-  const annotations = trades?.map(trade => ({
-    x: trade.date,
-    y: parseFloat(trade.price),
-    text: `${trade.quantity}주`,
-    showarrow: true,
-    arrowhead: 1,
-    arrowsize: 1,
-    arrowwidth: 1,
-    arrowcolor: '#ff0000',
-    ax: 0,
-    ay: -40,
-    bgcolor: '#1F2937',
-    bordercolor: '#374151',
-    borderwidth: 1,
-    borderpad: 1,
-    font: { size: 10, color: '#F9FAFB' }
-  })) || [];
+  const annotations = trades?.reduce((acc, trade, index) => {
+    // 같은 날짜의 거래 찾기
+    const sameDayTrades = trades.filter((t, i) => 
+      t.date === trade.date && i <= index
+    );
+    const sameDayIndex = sameDayTrades.length - 1;
+    
+    // 매수/매도에 따라 기본 위치 설정
+    const baseAY = trade.type === 'buy' ? -40 : 40;
+    
+    // 같은 날짜 거래가 있으면 위치 조정
+    const offset = sameDayIndex * (trade.type === 'buy' ? -25 : 25);
+    
+    acc.push({
+      x: trade.date,
+      y: parseFloat(trade.price),
+      text: `${trade.type === 'buy' ? '매수' : '매도'} ${trade.quantity}주`,
+      showarrow: true,
+      arrowhead: 1,
+      arrowsize: 1,
+      arrowwidth: 1,
+      arrowcolor: trade.type === 'buy' ? '#ff0000' : '#0000ff',
+      ax: 0,
+      ay: baseAY + offset, // 기본 위치에 offset 추가
+      bgcolor: '#1F2937',
+      bordercolor: '#374151',
+      borderwidth: 1,
+      borderpad: 1,
+      font: { 
+        size: 10, 
+        color: '#F9FAFB'
+      }
+    });
+    
+    return acc;
+  }, []) || [];
 
-  // 거래 호버 정보
+  // 거래 호버 데이터 수정
   const tradeHoverTrace = {
+    type: 'scatter',
     x: trades?.map(trade => trade.date) || [],
     y: trades?.map(trade => parseFloat(trade.price)) || [],
     mode: 'markers',
-    marker: { size: 0, opacity: 0 },
-    hoverinfo: 'text',
-    hovertext: trades?.map(trade => {
-      const purchaseDate = new Date(trade.date).toLocaleDateString();
-      let text = `구매날짜: ${purchaseDate}<br>구매가격: ${trade.price}`;
-      if (trade.memo) {
-        text += `<br>메모: ${trade.memo}`;
-      }
-      return text;
+    marker: {
+      size: 8,
+      color: trades?.map(trade => trade.type === 'buy' ? '#ff0000' : '#0000ff') || [],
+      symbol: trades?.map(trade => trade.type === 'buy' ? 'triangle-up' : 'triangle-down') || []
+    },
+    hovertemplate: trades?.map(trade => {
+      const date = new Date(trade.date).toLocaleDateString();
+      const type = trade.type === 'buy' ? '매수' : '매도';
+      const price = parseFloat(trade.price).toLocaleString();
+      const quantity = parseFloat(trade.quantity).toLocaleString();
+      let text = `${date}<br>${type} ${quantity}주<br>@${price}원`;
+      if (trade.memo) text += `<br>메모: ${trade.memo}`;
+      return text + '<extra></extra>'; // 추가 레이블 제거
     }) || [],
-    yaxis: 'y'
+    yaxis: 'y',
+    showlegend: false
   };
 
   return (
