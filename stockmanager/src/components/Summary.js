@@ -218,13 +218,11 @@ const Summary = ({ stocks, cashAmount }) => {
     }
   };
 
-  // 전체 자산 (주식 + 현금)
+  // 전체 자산 (주식 + 현금) 계산 수정
   const totalAssets = useMemo(() => {
-    const stocksTotal = stocks.reduce((sum, stock) => {
-      return sum + (stock.currentPrice * stock.totalQuantity);
-    }, 0);
-    return stocksTotal + cashAmount;
-  }, [stocks, cashAmount]);
+    // 주식 평가금액은 이미 계산된 summaryData.totalValue 사용
+    return summaryData.totalValue + cashAmount;
+  }, [summaryData.totalValue, cashAmount]);
 
   return (
     <div className="summary-container">
