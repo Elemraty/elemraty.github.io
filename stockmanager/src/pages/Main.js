@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { auth, database } from '../firebase';
 import { ref, onValue } from 'firebase/database';
 import { signOut } from 'firebase/auth';
@@ -55,6 +55,20 @@ function Main() {
     signOut(auth);
   };
 
+  const refreshStocks = useCallback(async () => {
+    const userStocksRef = ref(database, `users/${auth.currentUser.uid}/stocks`);
+    const snapshot = await get(userStocksRef);
+    if (snapshot.exists()) {
+      const stocksData = snapshot.val();
+      const stocksList = Object.entries(stocksData)
+        .filter(([_, stock]) => stock !== null)
+        .map(([_, stock]) => stock);
+      setStocks(stocksList);
+    } else {
+      setStocks([]);
+    }
+  }, []);
+
   return (
     <div className="main-container">
       <div className="header">
@@ -78,7 +92,7 @@ function Main() {
 
       <div className="tab-content">
         {activeTab === 'summary' && <Summary stocks={stocks} cashAmount={cashAmount} />}
-        {activeTab === 'table' && <StockTable stocks={stocks} onCashUpdate={setCashAmount} />}
+        {activeTab === 'table' && <StockTable stocks={stocks} onCashUpdate={setCashAmount} onStocksUpdate={refreshStocks} />}
       </div>
     </div>
   );

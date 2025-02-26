@@ -30,16 +30,22 @@ const fetchStockData = async (symbol) => {
     const timestamps = quotes.timestamp;
     const ohlc = quotes.indicators.quote[0];
     
-    // 각 타임스탬프에 대해 open, high, low, close, volume 데이터를 생성하고,
-    // close 값이 없는 항목은 제외합니다.
+    // 유효한 데이터만 필터링
     const cleanData = timestamps.map((timestamp, index) => ({
       date: new Date(timestamp * 1000),
-      open: ohlc.open[index] || ohlc.close[index],
-      high: ohlc.high[index] || ohlc.close[index],
-      low: ohlc.low[index] || ohlc.close[index],
+      open: ohlc.open[index],
+      high: ohlc.high[index],
+      low: ohlc.low[index],
       close: ohlc.close[index],
-      volume: ohlc.volume[index] || 0
-    })).filter(item => item.close != null);
+      volume: ohlc.volume[index]
+    })).filter(item => (
+      // 모든 OHLC 데이터가 존재하는 경우만 포함
+      item.open != null && 
+      item.high != null && 
+      item.low != null && 
+      item.close != null &&
+      item.volume != null
+    ));
 
     return {
       dates: cleanData.map(item => item.date),
@@ -196,20 +202,20 @@ const StockChart = ({ stock, trades }) => {
 
   // 거래 표시용 annotations
   const annotations = trades?.reduce((acc, trade, index) => {
+    // 날짜 문자열을 Date 객체로 변환
+    const tradeDate = new Date(trade.date + 'T00:00:00');
+    
     // 같은 날짜의 거래 찾기
     const sameDayTrades = trades.filter((t, i) => 
       t.date === trade.date && i <= index
     );
     const sameDayIndex = sameDayTrades.length - 1;
     
-    // 매수/매도에 따라 기본 위치 설정
     const baseAY = trade.type === 'buy' ? -40 : 40;
-    
-    // 같은 날짜 거래가 있으면 위치 조정
     const offset = sameDayIndex * (trade.type === 'buy' ? -25 : 25);
     
     acc.push({
-      x: trade.date,
+      x: tradeDate,  // Date 객체 사용
       y: parseFloat(trade.price),
       text: `${trade.type === 'buy' ? '매수' : '매도'} ${trade.quantity}주`,
       showarrow: true,
@@ -235,7 +241,7 @@ const StockChart = ({ stock, trades }) => {
   // 거래 호버 데이터 수정
   const tradeHoverTrace = {
     type: 'scatter',
-    x: trades?.map(trade => trade.date) || [],
+    x: trades?.map(trade => new Date(trade.date + 'T00:00:00')) || [],  // Date 객체로 변환
     y: trades?.map(trade => parseFloat(trade.price)) || [],
     mode: 'markers',
     marker: {
@@ -270,7 +276,10 @@ const StockChart = ({ stock, trades }) => {
           increasing: { line: { color: '#26A69A' } },
           decreasing: { line: { color: '#EF5350' } },
           yaxis: 'y',
-          name: '가격'
+          name: '가격',
+          connectgaps: false,  // 데이터가 없는 구간은 연결하지 않음
+          xperiod: 24 * 60 * 60 * 1000,  // 1일 단위로 x축 설정
+          xperiodalignment: 'start'  // 기간의 시작점 기준으로 정렬
         },
         // 이동평균선 추가
         {
@@ -397,7 +406,12 @@ const StockChart = ({ stock, trades }) => {
           gridcolor: '#374151',
           linecolor: '#F9FAFB',
           tickcolor: '#F9FAFB',
-          domain: [0, 1]
+          domain: [0, 1],
+          rangebreaks: [{
+            // 주말 제외
+            pattern: 'day of week',
+            bounds: [6, 1]  // 토요일(6)과 일요일(0) 제외
+          }]
         },
         yaxis: {
           autorange: true,

@@ -13,7 +13,7 @@ const areEqual = (prevProps, nextProps) => {
 // 상단에 변동성 옵션 상수 추가
 const VOLATILITY_OPTIONS = ['선택', '변동적', '중립적', '안정적'];
 
-const StockTable = ({ stocks, onCashUpdate }) => {
+const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showTradeModal, setShowTradeModal] = useState(false);
   const [selectedStock, setSelectedStock] = useState(null);
@@ -181,7 +181,6 @@ const StockTable = ({ stocks, onCashUpdate }) => {
   const recalculateWeights = useCallback(async () => {
     const db = getDatabase();
     const userId = auth.currentUser.uid;
-    const usdToKrw = 1450;
     
     try {
       // 모든 주식 데이터 가져오기
@@ -194,29 +193,28 @@ const StockTable = ({ stocks, onCashUpdate }) => {
       const cashSnapshot = await get(cashRef);
       let currentCash = cashSnapshot.val()?.amount || 0;
 
-      // 전체 포트폴리오 가치 계산 (현금 포함)
-      let totalValue = currentCash;
+      // 유효한 주식만 필터링
+      const validStocks = Object.values(allStocks)
+        .filter(stock => 
+          stock !== null && 
+          Array.isArray(stock.trades) && 
+          stock.trades.length > 0
+        );
 
-      // 각 주식의 현재 가치 계산
-      for (const stock of Object.values(allStocks)) {
-        const trades = Array.isArray(stock.trades) ? stock.trades : [];
-        
-        const currentQuantity = trades.reduce((sum, t) => {
-          if (t.type === 'buy') return sum + parseFloat(t.quantity);
-          if (t.type === 'sell') return sum - parseFloat(t.quantity);
-          return sum;
-        }, 0);
+      // 총 가치 계산
+      const totalValue = validStocks.reduce((sum, stock) => {
+        return sum + (parseFloat(stock.valueInKRW) || 0);
+      }, currentCash);
 
-        if (currentQuantity <= 0) continue;
-
-        const isUSStock = !/^\d+$/.test(stock.ticker);
-        const currentPrice = parseFloat(stock.currentPrice) || 0;
-        const valueInKRW = isUSStock ? 
-          (currentPrice * currentQuantity * usdToKrw) : 
-          (currentPrice * currentQuantity);
-
-        totalValue += valueInKRW;
-      }
+      // 각 주식의 비중 계산
+      validStocks.forEach(async (stock) => {
+        const weight = ((stock.valueInKRW / totalValue) * 100).toFixed(2);
+        const stockRef = ref(db, `users/${userId}/stocks/${stock.ticker}`);
+        await set(stockRef, {
+          ...stock,
+          weight: weight
+        });
+      });
 
       // 비중 계산 및 업데이트
       const cashWeight = totalValue > 0 ? (currentCash / totalValue * 100) : 0;
@@ -227,38 +225,6 @@ const StockTable = ({ stocks, onCashUpdate }) => {
       updateCashAmount(Math.round(currentCash));
       setCashWeight(parseFloat(cashWeight).toFixed(2));
 
-      // 각 주식의 비중 업데이트
-      for (const [ticker, stock] of Object.entries(allStocks)) {
-        const trades = Array.isArray(stock.trades) ? stock.trades : [];
-        
-        // 현재 보유 수량 계산
-        const currentQuantity = trades.reduce((sum, t) => {
-          if (t.type === 'buy') return sum + parseFloat(t.quantity);
-          if (t.type === 'sell') return sum - parseFloat(t.quantity);
-          return sum;
-        }, 0);
-
-        const stockRef = ref(db, `users/${userId}/stocks/${ticker}`);
-
-        if (currentQuantity <= 0) {
-          // 보유 수량이 없으면 비중을 0으로 설정
-          await set(ref(db, `users/${userId}/stocks/${ticker}/weight`), '0.00');
-          continue;
-        }
-
-        const isUSStock = !/^\d+$/.test(ticker);
-        const currentPrice = parseFloat(stock.currentPrice) || 0;
-        const valueInKRW = isUSStock ? 
-          (currentPrice * currentQuantity * usdToKrw) : 
-          (currentPrice * currentQuantity);
-        const weight = totalValue > 0 ? (valueInKRW / totalValue * 100) : 0;
-
-        // 전체 stock 데이터를 유지하면서 weight만 업데이트
-        await set(stockRef, {
-          ...stock,
-          weight: parseFloat(weight).toFixed(2)
-        });
-      }
     } catch (error) {
       console.error("Error in recalculateWeights:", error);
     }
@@ -335,7 +301,7 @@ const StockTable = ({ stocks, onCashUpdate }) => {
                 ...currentStockData,
                 currentPrice,
                 profit: profit || 0,
-                profitRate: (profitRate || 0).toFixed(2),
+                profitRate: profitRate.toFixed(2),
                 valueInKRW: valueInKRW.toFixed(0),
                 currentQuantity
               };
@@ -381,15 +347,14 @@ const StockTable = ({ stocks, onCashUpdate }) => {
   // 컴포넌트 마운트 시 초기 현금 설정
   useEffect(() => {
     const initializeCash = async () => {
-      const db = getDatabase();
-      const userId = auth.currentUser.uid;
+    const db = getDatabase();
+    const userId = auth.currentUser.uid;
       const cashRef = ref(db, `users/${userId}/cash`);
       
       const snapshot = await get(cashRef);
       if (!snapshot.exists()) {
-        // 초기 현금이 설정되어 있지 않은 경우에만 설정
         await set(cashRef, {
-          amount: 0, // 1억원
+          amount: 0, 
           weight: '0'
         });
       }
@@ -404,8 +369,8 @@ const StockTable = ({ stocks, onCashUpdate }) => {
       try {
         const db = getDatabase();
         const userId = auth.currentUser.uid;
-        const stocksRef = ref(db, `users/${userId}/stocks`);
-        const snapshot = await get(stocksRef);
+      const stocksRef = ref(db, `users/${userId}/stocks`);
+      const snapshot = await get(stocksRef);
         const stocks = snapshot.val();
 
         if (!stocks) return;
@@ -422,17 +387,17 @@ const StockTable = ({ stocks, onCashUpdate }) => {
           // 변경사항이 있는 경우에만 업데이트
           if (JSON.stringify(updatedTrades) !== JSON.stringify(stock.trades)) {
             const stockRef = ref(db, `users/${userId}/stocks/${ticker}`);
-            await set(stockRef, {
+        await set(stockRef, {
               ...stock,
               trades: updatedTrades
-            });
+        });
             console.log(`Migrated trade types for ${ticker}`);
           }
-        }
-      } catch (error) {
-        console.error("Error migrating trade types:", error);
       }
-    };
+    } catch (error) {
+        console.error("Error migrating trade types:", error);
+    }
+  };
 
     migrateTradeTypes();
   }, []); // 컴포넌트 마운트 시 한 번만 실행
@@ -532,6 +497,7 @@ const StockTable = ({ stocks, onCashUpdate }) => {
       await recalculateWeights();
       
       console.log("Stock deleted successfully");
+      onStocksUpdate();
     } catch (error) {
       console.error("Error deleting stock:", error);
       alert("주식 삭제 중 오류가 발생했습니다.");
@@ -687,7 +653,7 @@ const StockTable = ({ stocks, onCashUpdate }) => {
         ...cashSnapshot.val(),
         amount: Math.round(currentCash)
       });
-
+      
       // 전체 비중 재계산
       await recalculateWeights();
 
@@ -711,7 +677,7 @@ const StockTable = ({ stocks, onCashUpdate }) => {
   };
 
   // 거래내역 삭제
-  const handleDeleteTrade = async (tradeId) => {
+  const handleDeleteTrade = async (ticker, tradeId) => {
     if (!window.confirm("이 거래내역을 삭제하시겠습니까?")) {
       return;
     }
@@ -719,7 +685,7 @@ const StockTable = ({ stocks, onCashUpdate }) => {
     try {
       const db = getDatabase();
       const userId = auth.currentUser.uid;
-      const stockRef = ref(db, `users/${userId}/stocks/${selectedStock.ticker}`);
+      const stockRef = ref(db, `users/${userId}/stocks/${ticker}`);
 
       // 현재 주식 데이터 가져오기
       const snapshot = await get(stockRef);
@@ -756,6 +722,7 @@ const StockTable = ({ stocks, onCashUpdate }) => {
       setSelectedStock(updatedStock);
 
       console.log("Trade deleted successfully");
+      onStocksUpdate();
     } catch (error) {
       console.error("Error deleting trade:", error);
       alert("거래내역 삭제 중 오류가 발생했습니다.");
@@ -1530,7 +1497,7 @@ const StockTable = ({ stocks, onCashUpdate }) => {
                               수정
                             </button>
                             <button 
-                              onClick={() => handleEditTrade(trade.id)}
+                              onClick={() => handleEditTrade(selectedStock.ticker, trade.id)}
                               className="btn btn-warning btn-sm me-2"
                             >
                               메모수정
@@ -1538,7 +1505,7 @@ const StockTable = ({ stocks, onCashUpdate }) => {
                           </td>
                           <td>
                             <button 
-                              onClick={() => handleDeleteTrade(trade.id)}
+                              onClick={() => handleDeleteTrade(selectedStock.ticker, trade.id)}
                               className="btn btn-danger"
                             >
                               삭제
