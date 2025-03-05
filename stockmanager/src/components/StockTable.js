@@ -12,7 +12,9 @@ const areEqual = (prevProps, nextProps) => {
 
 // 상단에 변동성 옵션 상수 추가
 const VOLATILITY_OPTIONS = ['선택', '변동적', '중립적', '안정적'];
-
+const response = await fetch('https://visualp.p-e.kr/api/stock-price?ticker=KRW=X');
+const data = await response.json();
+const usdToKrw = parseFloat(data.price) || 1450
 const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -44,8 +46,8 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
     type: 'buy'  // type 필드 추가
   });
   const [sortConfig, setSortConfig] = useState({
-    key: null,
-    direction: 'ascending'
+    key: 'weight',
+    direction: 'descending'
   });
 
   // 현금 관련 state 추가
@@ -68,33 +70,41 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
   // state 추가
   const [editingMemo, setEditingMemo] = useState(null);
 
-  // 총계 계산을 위한 useMemo 추가
+  // 총계 계산을 위한 useMemo 수정
   const totals = useMemo(() => {
     const validStocks = stocks.filter(stock => Array.isArray(stock.trades) && stock.trades.length > 0);
     
     return validStocks.reduce((acc, stock) => {
       const trades = stock.trades;
+      
+      // 현재 보유 수량 계산
       const currentQuantity = trades.reduce((sum, t) => {
         if (t.type === 'buy') return sum + parseFloat(t.quantity);
         if (t.type === 'sell') return sum - parseFloat(t.quantity);
         return sum;
       }, 0);
-
+      
       if (currentQuantity > 0) {
         const isUSStock = !/^\d+$/.test(stock.ticker);
-        // 총 투자금액
-        const totalInvestment = trades.reduce((sum, t) => {
-          if (t.type === 'buy') {
-            const amount = parseFloat(t.price) * parseFloat(t.quantity);
-            return sum + (isUSStock ? amount * 1450 : amount);
-          }
-          return sum;
+        
+        // 총 매수 수량과 금액 계산
+        const buyTrades = trades.filter(t => t.type === 'buy');
+        const totalBuyQuantity = buyTrades.reduce((sum, t) => sum + parseFloat(t.quantity), 0);
+        const totalBuyCost = buyTrades.reduce((sum, t) => {
+          const amount = parseFloat(t.price) * parseFloat(t.quantity);
+          return sum + (isUSStock ? amount * usdToKrw : amount);
         }, 0);
-
+        
+        // 평균 매수가 계산
+        const avgBuyPrice = totalBuyQuantity > 0 ? totalBuyCost / totalBuyQuantity : 0;
+        
+        // 현재 보유분에 대한 투자금액 (평균 매수가 기준)
+        const currentInvestment = avgBuyPrice * currentQuantity;
+        
         // 평가금액
         const evaluationValue = parseFloat(stock.valueInKRW || 0);
-
-        acc.totalInvestment += totalInvestment;
+        
+        acc.totalInvestment += currentInvestment;
         acc.totalEvaluation += evaluationValue;
       }
       return acc;
@@ -538,11 +548,8 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
     if (newTrade.type === 'sell') {
       // 현재 보유 수량 계산 (매수 수량 합계 - 매도 수량 합계)
       const currentQuantity = selectedStock.trades.reduce((sum, t) => {
-        if (t.type === 'buy') {
-          return sum + parseFloat(t.quantity);
-        } else if (t.type === 'sell') {
-          return sum - parseFloat(t.quantity);
-        }
+        if (t.type === 'buy') return sum + parseFloat(t.quantity);
+        else if (t.type === 'sell') return sum - parseFloat(t.quantity);
         return sum;
       }, 0);
       
@@ -971,6 +978,15 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
       const snapshot = await get(cashRef);
       const cashData = snapshot.val() || { amount: 0, weight: 0 };
       
+      // 카테고리와 변동성이 없는 경우 추가
+      if (!cashData.category || !cashData.volatility) {
+        await set(cashRef, {
+          ...cashData,
+          category: '현금',
+          volatility: '안정적'
+        });
+      }
+      
       setCashAmount(cashData.amount);
       setCashWeight(cashData.weight);
     };
@@ -991,6 +1007,8 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
     
     await set(cashRef, {
       amount: newAmount,
+      category: '현금',  // 카테고리 고정값 추가
+      volatility: '안정적',  // 변동성 고정값 추가
       transactions: [
         ...(snapshot.val()?.transactions || []),
         {
@@ -1155,7 +1173,7 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
               변동성 {getSortDirectionIcon('volatility')}
             </th>
             <th onClick={() => requestSort('totalInvestment')} style={{cursor: 'pointer'}}>
-              총투자금액 {getSortDirectionIcon('totalInvestment')}
+              투자원금 {getSortDirectionIcon('totalInvestment')}
             </th>
             <th onClick={() => requestSort('avgPrice')} style={{cursor: 'pointer'}}>
               평균매수가격 {getSortDirectionIcon('avgPrice')}
@@ -1285,16 +1303,16 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
                     ))}
                   </select>
                 </td>
-                <td>{totalInvestment > 0 ? totalInvestment.toLocaleString() : '-'}</td>
-                <td>{currentQuantity > 0 ? parseFloat(avgPrice).toLocaleString() : '-'}</td>
+                <td>{totalInvestment > 0 ? totalInvestment.toLocaleString() : ' '}</td>
+                <td>{currentQuantity > 0 ? parseFloat(avgPrice).toLocaleString() : ' '}</td>
                 <td>{parseFloat(stock.currentPrice).toLocaleString()}</td>
                 <td style={profitStyle}>
-                  {currentQuantity > 0 ? `${evaluationValue.toLocaleString()}원` : '-'}
+                  {currentQuantity > 0 ? `${evaluationValue.toLocaleString()}원` : ' '}
                   <br />
-                  {currentQuantity > 0 ? `(${formattedProfit})` : '-'}
+                  {currentQuantity > 0 ? `(${formattedProfit})` : ' '}
                 </td>
                 <td style={profitRateStyle}>
-                  {currentQuantity > 0 ? `${formattedProfitRate}%` : '-'}
+                  {currentQuantity > 0 ? `${formattedProfitRate}%` : ' '}
                 </td>
                 <td>{parseFloat(stock.weight).toFixed(2)}%</td>
                 <td>
@@ -1344,13 +1362,13 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
           {/* 총계 행 수정 */}
           <tr className="total-row" style={{ fontWeight: 'bold', backgroundColor: '#f8f9fa' }}>
             <td>총계</td>
-            <td>-</td>
-            <td>-</td>
-            <td>-</td>
-            <td>-</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
             <td>{Math.round(totals.totalInvestment).toLocaleString()}</td>
-            <td>-</td>
-            <td>-</td>
+            <td></td>
+            <td></td>
             <td style={{ color: totals.totalEvaluation > totals.totalInvestment ? 'red' : 'blue' }}>
               {Math.round(totals.totalEvaluation).toLocaleString()}원
               <br />
@@ -1361,22 +1379,22 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
               {(totals.totalEvaluation > totals.totalInvestment ? '+' : '')}
               {((totals.totalEvaluation - totals.totalInvestment) / totals.totalInvestment * 100).toFixed(2)}%
             </td>
-            <td>-</td>
-            <td colSpan="3">-</td>
+            <td></td>
+            <td colSpan="3"></td>
           </tr>
 
           {/* 현금 행 */}
           <tr className="cash-row">
             <td>CASH</td>
             <td>현금자산</td>
-            <td>-</td>
-            <td>-</td>
-            <td>-</td>
+            <td></td>
+            <td>현금</td>
+            <td>안정적</td>
             <td>{Math.round(cashAmount).toLocaleString()}</td>
-            <td>-</td>
-            <td>-</td>
+            <td></td>
+            <td></td>
             <td>{Math.round(cashAmount).toLocaleString()}원</td>
-            <td>-</td>
+            <td></td>
             <td>{parseFloat(cashWeight).toFixed(2)}%</td>
             <td colSpan="3">
               <button 

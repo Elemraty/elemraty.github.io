@@ -33,6 +33,34 @@ const Summary = ({ stocks, cashAmount }) => {
       trades: Array.isArray(stock.trades) ? stock.trades : []
     }));
 
+    // 먼저 totalValue 계산
+    const totalValue = validStocks.reduce((sum, stock) => {
+      if (!stock.trades.length) return sum;
+      return sum + parseFloat(stock.valueInKRW || 0);
+    }, 0);
+
+    // 총 자산 가치 (주식 + 현금)
+    const totalAssetValue = totalValue + cashAmount;
+
+    // 초기 투자 날짜 찾기 (가장 오래된 거래)
+    let firstTradeDate = new Date();
+    validStocks.forEach(stock => {
+      if (!stock.trades.length) return;
+      
+      stock.trades.forEach(trade => {
+        if (trade.type === 'buy') {
+          const tradeDate = new Date(trade.date);
+          if (tradeDate < firstTradeDate) {
+            firstTradeDate = tradeDate;
+          }
+        }
+      });
+    });
+    
+    // 투자 기간 계산 (년 단위)
+    const currentDate = new Date();
+    const yearDiff = (currentDate - firstTradeDate) / (1000 * 60 * 60 * 24 * 365);
+
     // 섹터별 비중
     const sectorData = validStocks.reduce((acc, stock) => {
       if (!stock.trades.length) return acc;
@@ -42,7 +70,7 @@ const Summary = ({ stocks, cashAmount }) => {
       return acc;
     }, {});
 
-    // 카테고리별 비중
+    // 카테고리별 비중 (현금 포함)
     const categoryData = validStocks.reduce((acc, stock) => {
       if (!stock.trades.length) return acc;
       const category = stock.category || '미분류';
@@ -50,6 +78,12 @@ const Summary = ({ stocks, cashAmount }) => {
       if (weight > 0) acc[category] = (acc[category] || 0) + weight;
       return acc;
     }, {});
+    
+    // 현금 카테고리 추가
+    if (cashAmount > 0) {
+      const cashWeight = (cashAmount / totalAssetValue) * 100;
+      categoryData['현금'] = (categoryData['현금'] || 0) + cashWeight;
+    }
 
     // 외화/원화 비중
     const currencyData = validStocks.reduce((acc, stock) => {
@@ -60,8 +94,14 @@ const Summary = ({ stocks, cashAmount }) => {
       if (weight > 0) acc[type] = (acc[type] || 0) + weight;
       return acc;
     }, {});
+    
+    // 현금은 KRW에 추가
+    if (cashAmount > 0) {
+      const cashWeight = (cashAmount / totalAssetValue) * 100;
+      currencyData['KRW'] = (currencyData['KRW'] || 0) + cashWeight;
+    }
 
-    // 변동성별 비중
+    // 변동성별 비중 (현금 포함)
     const volatilityData = validStocks.reduce((acc, stock) => {
       if (!stock.trades.length) return acc;
       const volatility = stock.volatility || '선택';
@@ -69,6 +109,12 @@ const Summary = ({ stocks, cashAmount }) => {
       if (weight > 0) acc[volatility] = (acc[volatility] || 0) + weight;
       return acc;
     }, {});
+    
+    // 현금은 안정적 변동성에 추가
+    if (cashAmount > 0) {
+      const cashWeight = (cashAmount / totalAssetValue) * 100;
+      volatilityData['안정적'] = (volatilityData['안정적'] || 0) + cashWeight;
+    }
 
     // 전체 투자 현황
     const totalInvestment = validStocks.reduce((sum, stock) => {
@@ -95,46 +141,96 @@ const Summary = ({ stocks, cashAmount }) => {
         }, 0);
 
         const totalBuyQuantity = trades.reduce((sum, t) => {
-          if (t.type === 'buy') return sum + parseFloat(t.quantity);
+          if (t.type === 'buy') {
+            return sum + parseFloat(t.quantity);
+          }
           return sum;
         }, 0);
 
-        // 현재 보유 수량에 대한 평균매수단가 기준 투자금액 계산
-        const avgPrice = totalBuyQuantity > 0 ? totalBuyCost / totalBuyQuantity : 0;
-        return sum + (avgPrice * currentQuantity);
+        // 평균 매수가
+        const avgBuyPrice = totalBuyQuantity > 0 ? totalBuyCost / totalBuyQuantity : 0;
+        
+        // 현재 보유 수량에 대한 투자금액
+        const currentInvestment = avgBuyPrice * currentQuantity;
+        
+        return sum + currentInvestment;
       }
-      
       return sum;
-    }, 0);
-
-    const totalValue = validStocks.reduce((sum, stock) => {
-      if (!stock.trades.length) return sum;
-      return sum + parseFloat(stock.valueInKRW || 0);
     }, 0);
 
     const totalProfit = validStocks.reduce((sum, stock) => {
       if (!stock.trades.length) return sum;
-      return sum + parseFloat(stock.profit || 0);
-    }, 0);
-
-    const totalProfitRate = (totalProfit / totalInvestment) * 100;
-
-    // 수익/손실 종목 개수 계산
-    const profitStocks = validStocks.reduce((acc, stock) => {
-      if (!stock.trades.length) return acc;
-      const currentQuantity = stock.trades.reduce((sum, t) => {
+      const trades = stock.trades;
+      const isUSStock = !/^\d+$/.test(stock.ticker);
+      
+      // 현재 보유 수량 계산
+      const currentQuantity = trades.reduce((sum, t) => {
         if (t.type === 'buy') return sum + parseFloat(t.quantity);
         if (t.type === 'sell') return sum - parseFloat(t.quantity);
         return sum;
       }, 0);
-      
+
       if (currentQuantity > 0) {
-        const profit = parseFloat(stock.profit || 0);
-        return {
-          positive: acc.positive + (profit > 0 ? 1 : 0),
-          negative: acc.negative + (profit < 0 ? 1 : 0)
-        };
+        // 매수 거래만 고려하여 평균매수가 계산
+        const totalBuyCost = trades.reduce((sum, t) => {
+          if (t.type === 'buy') {
+            const amount = parseFloat(t.price) * parseFloat(t.quantity);
+            return sum + (isUSStock ? amount * exchangeRate : amount);
+          }
+          return sum;
+        }, 0);
+
+        const totalBuyQuantity = trades.reduce((sum, t) => {
+          if (t.type === 'buy') {
+            return sum + parseFloat(t.quantity);
+          }
+          return sum;
+        }, 0);
+
+        // 평균 매수가
+        const avgBuyPrice = totalBuyQuantity > 0 ? totalBuyCost / totalBuyQuantity : 0;
+        
+        // 현재 보유 수량에 대한 투자금액
+        const currentInvestment = avgBuyPrice * currentQuantity;
+        
+        // 평가금액
+        const evaluationValue = parseFloat(stock.valueInKRW || 0);
+        
+        return sum + (evaluationValue - currentInvestment);
       }
+      return sum;
+    }, 0);
+
+    // 수익률 계산
+    const totalProfitRate = totalInvestment > 0 ? (totalProfit / totalInvestment) * 100 : 0;
+
+    // 복리 수익률 계산 (CAGR) - totalInvestment 계산 후로 이동
+    let cagr = 0;
+    if (yearDiff > 0 && totalInvestment > 0) {
+      cagr = Math.pow(totalAssetValue / totalInvestment, 1 / yearDiff) - 1;
+      cagr = cagr * 100; // 백분율로 변환
+    }
+
+    // 수익/손실 종목 수 계산
+    const profitStocks = validStocks.reduce((acc, stock) => {
+      if (!stock.trades.length) return acc;
+      
+      const trades = stock.trades;
+      const currentQuantity = trades.reduce((sum, t) => {
+        if (t.type === 'buy') return sum + parseFloat(t.quantity);
+        if (t.type === 'sell') return sum - parseFloat(t.quantity);
+        return sum;
+      }, 0);
+
+      if (currentQuantity > 0) {
+        const profitRate = parseFloat(stock.profitRate || 0);
+        if (profitRate > 0) {
+          acc.positive++;
+        } else if (profitRate < 0) {
+          acc.negative++;
+        }
+      }
+      
       return acc;
     }, { positive: 0, negative: 0 });
 
@@ -147,89 +243,72 @@ const Summary = ({ stocks, cashAmount }) => {
       totalValue,
       totalProfit,
       totalProfitRate,
-      profitStocks
+      profitStocks,
+      cagr,
+      investmentPeriod: yearDiff
     };
-  }, [stocks, exchangeRate]); // exchangeRate를 의존성 배열에 추가
+  }, [stocks, exchangeRate, cashAmount]);
 
+  // 차트 데이터 생성 함수
   const createChartData = (data, label) => {
-    // 보유 주식의 총 가치 계산 (현금 제외)
-    const totalStockValue = Object.values(data).reduce((sum, value) => sum + value, 0);
+    const labels = Object.keys(data);
+    const values = Object.values(data);
+    const backgroundColors = [
+      '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', 
+      '#FF9F40', '#8AC926', '#1982C4', '#6A4C93', '#FF595E',
+      '#FFCA3A', '#8AC926', '#1982C4', '#6A4C93', '#FF595E'
+    ];
     
-    // 비중 계산 시 총 주식 가치 기준으로 계산
-    const chartData = {
-      labels: Object.keys(data).filter(key => data[key] > 0),
-      datasets: [{
-        label,
-        data: Object.values(data)
-          .filter(value => value > 0)
-          .map(value => (value / totalStockValue) * 100), // 현금 제외한 비중 계산
-        backgroundColor: [
-          '#FF6384',
-          '#36A2EB',
-          '#FFCE56',
-          '#4BC0C0',
-          '#9966FF',
-          '#FF9F40'
-        ]
-      }]
+    return {
+      labels,
+      datasets: [
+        {
+          label,
+          data: values,
+          backgroundColor: backgroundColors.slice(0, labels.length),
+          borderWidth: 1
+        }
+      ]
     };
-
-    return chartData;
   };
 
-  // 차트 옵션 수정
+  // 차트 옵션
   const chartOptions = {
     plugins: {
       legend: {
-        position: 'bottom',
+        position: 'right',
         labels: {
-          padding: 20,
           font: {
             size: 12
-          }
-        }
-      },
-      tooltip: {
-        callbacks: {
-          label: function(context) {
-            const label = context.label || '';
-            const value = context.raw || 0;
-            // 현금을 제외한 총 주식 가치 기준으로 실제 금액 계산
-            const actualValue = Math.round((value / 100) * summaryData.totalValue);
-            return `${label}: ${actualValue.toLocaleString()}원 (${value.toFixed(1)}%)`;
-          }
+          },
+          color: '#333'
         }
       },
       datalabels: {
-        display: true,
-        color: '#000',
+        formatter: (value, ctx) => {
+          const sum = ctx.dataset.data.reduce((a, b) => a + b, 0);
+          const percentage = (value * 100 / sum).toFixed(1) + '%';
+          return percentage;
+        },
+        color: '#fff',
         font: {
           weight: 'bold',
-          size: 12
-        },
-        formatter: (value, context) => {
-          const label = context.chart.data.labels[context.dataIndex];
-          return `${label}\n${value.toFixed(1)}%`;
-        },
-        align: 'center',
-        anchor: 'center',
-        textAlign: 'center'
+          size: 11
+        }
       }
-    }
+    },
+    maintainAspectRatio: true
   };
 
-  // 전체 자산 (주식 + 현금) 계산 수정
-  const totalAssets = useMemo(() => {
-    // 주식 평가금액은 이미 계산된 summaryData.totalValue 사용
-    return summaryData.totalValue + cashAmount;
-  }, [summaryData.totalValue, cashAmount]);
+  // 총 자산 계산
+  const totalAssets = summaryData.totalValue + cashAmount;
 
   return (
     <div className="summary-container">
       <div className="summary-header">
         <h2>포트폴리오 요약</h2>
       </div>
-      
+
       <div className="investment-summary">
         <div className="summary-item">
           <h3>전체 보유자산</h3>
@@ -257,6 +336,16 @@ const Summary = ({ stocks, cashAmount }) => {
             {summaryData.totalProfitRate.toFixed(2)}%
           </p>
         </div>
+        <div className="summary-item">
+          <h3>연평균 복리수익률</h3>
+          <p style={{ color: summaryData.cagr > 0 ? 'red' : 'blue' }}>
+            {summaryData.cagr > 0 ? '+' : ''}
+            {summaryData.cagr.toFixed(2)}%
+            <span className="investment-period">
+              (투자기간: {summaryData.investmentPeriod.toFixed(1)}년)
+            </span>
+          </p>
+        </div>
       </div>
 
       <div className="profit-count-summary">
@@ -273,12 +362,13 @@ const Summary = ({ stocks, cashAmount }) => {
             </p>
           </div>
         </div>
+        
         <div className="profit-count-divider">
           <div className="divider-line"></div>
-          <div className="total-count">
-            총 {summaryData.profitStocks.positive + summaryData.profitStocks.negative}종목
-          </div>
+          <span className="total-count">총 {summaryData.profitStocks.positive + summaryData.profitStocks.negative}종목</span>
+          <div className="divider-line"></div>
         </div>
+        
         <div className="profit-count-item loss">
           <div className="count-circle loss">
             <span className="count">{summaryData.profitStocks.negative}</span>

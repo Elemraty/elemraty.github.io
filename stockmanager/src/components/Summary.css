@@ -22,6 +22,8 @@
   background-color: #f8f9fa;
   border-radius: 6px;
   text-align: center;
+  flex: 1 0 30%;
+  margin-bottom: 15px;
 }
 
 .summary-item h3 {
@@ -151,4 +153,12 @@
   font-size: 0.9rem;
   color: #6c757d;
   white-space: nowrap;
-} 
+}
+
+.investment-period {
+  font-size: 0.8rem;
+  color: #666;
+  margin-left: 8px;
+  font-weight: normal;
+}
+
