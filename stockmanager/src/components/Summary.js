@@ -279,6 +279,7 @@ const Summary = ({ stocks, cashAmount }) => {
         position: 'right',
         labels: {
           font: {
+            weight: 'bold',
             size: 12
           },
           color: '#333'
@@ -286,9 +287,10 @@ const Summary = ({ stocks, cashAmount }) => {
       },
       datalabels: {
         formatter: (value, ctx) => {
+          const label = ctx.chart.data.labels[ctx.dataIndex];
           const sum = ctx.dataset.data.reduce((a, b) => a + b, 0);
           const percentage = (value * 100 / sum).toFixed(1) + '%';
-          return percentage;
+          return `${label}${percentage}`;
         },
         color: '#fff',
         font: {
