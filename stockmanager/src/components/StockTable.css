@@ -368,4 +368,15 @@
 
 .cash-row {
   background-color: #fff;
+}
+
+.grand-total-row {
+  background-color: #e9ecef !important;
+  font-weight: bold;
+  font-size: 1.05em;
+}
+
+.grand-total-row td {
+  border-top: 2px solid #dee2e6;
+  border-bottom: 2px solid #dee2e6;
 } 

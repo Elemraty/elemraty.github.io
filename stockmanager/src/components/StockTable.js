@@ -1384,7 +1384,7 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
           </tr>
 
           {/* 현금 행 */}
-          <tr className="cash-row">
+          <tr className="cash-row" style={{ fontWeight: 'bold', backgroundColor: '#f8f9fa' }}>
             <td>CASH</td>
             <td>현금자산</td>
             <td></td>
@@ -1404,6 +1404,22 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
                 현금관리
               </button>
             </td>
+          </tr>
+
+          {/* 전체 합계 행 (투자원금 + 현금자산) */}
+          <tr className="grand-total-row" style={{ fontWeight: 'bold', backgroundColor: '#e9ecef', borderTop: '2px solid #dee2e6' }}>
+            <td>전체 합계</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>{Math.round(totals.totalInvestment + cashAmount).toLocaleString()}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>100.00%</td>
+            <td colSpan="3"></td>
           </tr>
         </tbody>
       </table>
