@@ -10,6 +10,7 @@ import { getDatabase, get } from 'firebase/database';
 function Main() {
   const [activeTab, setActiveTab] = useState('summary');
   const [stocks, setStocks] = useState([]);
+  // eslint-disable-next-line no-unused-vars
   const [cashAmount, setCashAmount] = useState(0);
 
   useEffect(() => {
@@ -34,21 +35,24 @@ function Main() {
   }, []);
 
   useEffect(() => {
-    const fetchCashAmount = async () => {
+    const fetchCashInfo = async () => {
       try {
         const db = getDatabase();
         const userId = auth.currentUser.uid;
-        const cashRef = ref(db, `users/${userId}/cash`);
-        const snapshot = await get(cashRef);
-        if (snapshot.exists()) {
-          setCashAmount(snapshot.val().amount || 0);
+        
+        const cashKRWRef = ref(db, `users/${userId}/cash_krw`);
+        const cashKRWSnapshot = await get(cashKRWRef);
+        
+        if (cashKRWSnapshot.exists()) {
+          const cashKRWData = cashKRWSnapshot.val();
+          setCashAmount(parseFloat(cashKRWData.amount) || 0);
         }
       } catch (error) {
-        console.error("Error fetching cash amount:", error);
+        console.error("Error fetching cash info:", error);
       }
     };
 
-    fetchCashAmount();
+    fetchCashInfo();
   }, []);
 
   const handleLogout = () => {
@@ -91,7 +95,7 @@ function Main() {
       </div>
 
       <div className="tab-content">
-        {activeTab === 'summary' && <Summary stocks={stocks} cashAmount={cashAmount} />}
+        {activeTab === 'summary' && <Summary stocks={stocks} />}
         {activeTab === 'table' && <StockTable stocks={stocks} onCashUpdate={setCashAmount} onStocksUpdate={refreshStocks} />}
       </div>
     </div>
