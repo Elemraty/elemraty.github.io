@@ -513,8 +513,8 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
       try {
         const db = getDatabase();
         const userId = auth.currentUser.uid;
-      const stocksRef = ref(db, `users/${userId}/stocks`);
-      const snapshot = await get(stocksRef);
+        const stocksRef = ref(db, `users/${userId}/stocks`);
+        const snapshot = await get(stocksRef);
         const stocks = snapshot.val();
 
         if (!stocks) return;
@@ -531,19 +531,21 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
           // 변경사항이 있는 경우에만 업데이트
           if (JSON.stringify(updatedTrades) !== JSON.stringify(stock.trades)) {
             const stockRef = ref(db, `users/${userId}/stocks/${ticker}`);
-        await set(stockRef, {
+            await set(stockRef, {
               ...stock,
               trades: updatedTrades
-        });
+            });
             console.log(`Migrated trade types for ${ticker}`);
           }
-      }
-    } catch (error) {
+        }
+      } catch (error) {
         console.error("Error migrating trade types:", error);
-    }
-  };
+      }
+    };
 
     migrateTradeTypes();
+    // 기존 매도 거래에 avgBuyPrice 속성 추가
+    updateSellTradesWithAvgBuyPrice();
   }, []); // 컴포넌트 마운트 시 한 번만 실행
 
   // 새 주식 추가
@@ -721,13 +723,30 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
     // 기존 거래 내역 복사
     const trades = Array.isArray(selectedStock.trades) ? [...selectedStock.trades] : [];
     
-    // 새 거래 추가
+    // 새 거래 객체 생성
     const newTradeObj = {
       ...newTrade,
       price: parseFloat(newTrade.price),
       quantity: parseFloat(newTrade.quantity),
       id: Date.now().toString()
     };
+    
+    // 매도 거래인 경우 평균 매수가 계산하여 추가
+    if (newTrade.type === 'sell') {
+      // 매수 거래만 고려하여 평균매수가 계산
+      const totalBuyCost = trades.reduce((sum, t) => {
+        if (t.type === 'buy') return sum + (parseFloat(t.price) * parseFloat(t.quantity));
+        return sum;
+      }, 0);
+
+      const totalBuyQuantity = trades.reduce((sum, t) => {
+        if (t.type === 'buy') return sum + parseFloat(t.quantity);
+        return sum;
+      }, 0);
+
+      const avgBuyPrice = totalBuyQuantity > 0 ? totalBuyCost / totalBuyQuantity : 0;
+      newTradeObj.avgBuyPrice = avgBuyPrice;
+    }
     
     trades.push(newTradeObj);
     
@@ -1058,12 +1077,32 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
       // 거래 내역 배열에서 수정할 거래 업데이트
       const updatedTrades = currentStock.trades.map(trade => {
         if (trade.id === editingTrade.id) {
-          return { 
+          const updatedTrade = { 
             ...trade, 
             price: parseFloat(editTradeForm.price),
             quantity: parseFloat(editTradeForm.quantity),
             type: editTradeForm.type
           };
+          
+          // 매도 거래인 경우 평균 매수가 계산하여 추가
+          if (updatedTrade.type === 'sell') {
+            // 현재 수정 중인 거래를 제외한 매수 거래만 고려하여 평균매수가 계산
+            const otherTrades = currentStock.trades.filter(t => t.id !== editingTrade.id);
+            const totalBuyCost = otherTrades.reduce((sum, t) => {
+              if (t.type === 'buy') return sum + (parseFloat(t.price) * parseFloat(t.quantity));
+              return sum;
+            }, 0);
+
+            const totalBuyQuantity = otherTrades.reduce((sum, t) => {
+              if (t.type === 'buy') return sum + parseFloat(t.quantity);
+              return sum;
+            }, 0);
+
+            const avgBuyPrice = totalBuyQuantity > 0 ? totalBuyCost / totalBuyQuantity : 0;
+            updatedTrade.avgBuyPrice = avgBuyPrice;
+          }
+          
+          return updatedTrade;
         }
         return trade;
       });
@@ -1465,16 +1504,6 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
     loadMemos();
   }, [loadMemos]);
 
-  // 현금 관리 버튼 클릭 시 호출되는 함수 수정
-  const handleCashModalOpen = (currency) => {
-    setCashForm({
-      amount: '',
-      description: '',
-      currency: currency,
-      date: new Date().toISOString().split('T')[0] // 오늘 날짜로 설정
-    });
-    setShowCashModal(true);
-  };
 
   // 현금 증감 내역 추가 함수
   const addCashHistoryEntry = async (entry) => {
@@ -1505,7 +1534,7 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
     }
   };
 
-  // 현금 내역 로드 함수
+  // 현금 내역 로드 함수 수정
   const loadCashHistory = useCallback(async () => {
     try {
       const db = getDatabase();
@@ -1517,9 +1546,9 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
         const history = snapshot.val();
         setCashHistory(history);
         
-        // 가장 최근 월을 선택
+        // 가장 최근 월을 선택 (selectedMonth가 없거나 선택된 월이 내역에 없는 경우에만)
         const months = Object.keys(history).sort().reverse();
-        if (months.length > 0 && !selectedMonth) {
+        if (months.length > 0 && (!selectedMonth || !history[selectedMonth])) {
           setSelectedMonth(months[0]);
         }
       } else {
@@ -1530,10 +1559,93 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
     }
   }, [selectedMonth]);
 
-  // 컴포넌트 마운트 시 현금 내역 로드
-  useEffect(() => {
+  // 월 선택 변경 핸들러 추가
+  const handleMonthChange = (e) => {
+    setSelectedMonth(e.target.value);
+  };
+
+
+
+  // 현금 모달 열기 버튼 클릭 핸들러 수정
+  const handleCashButtonClick = () => {
+    setCashForm(prev => ({ ...prev, currency: 'KRW' }));
+    setShowCashModal(true);
     loadCashHistory();
-  }, [loadCashHistory]);
+  };
+
+  // 기존 매도 거래에 avgBuyPrice 속성 추가하는 함수
+  const updateSellTradesWithAvgBuyPrice = async () => {
+    try {
+      const db = getDatabase();
+      const userId = auth.currentUser.uid;
+      
+      // 모든 주식 데이터 가져오기
+      const stocksRef = ref(db, `users/${userId}/stocks`);
+      const snapshot = await get(stocksRef);
+      const allStocks = snapshot.val() || {};
+      
+      let updatedCount = 0;
+      
+      // 각 주식에 대해 처리
+      for (const ticker in allStocks) {
+        const stock = allStocks[ticker];
+        if (!Array.isArray(stock.trades) || stock.trades.length === 0) continue;
+        
+        let needsUpdate = false;
+        const updatedTrades = [...stock.trades];
+        
+        // 거래 내역을 날짜순으로 정렬
+        updatedTrades.sort((a, b) => new Date(a.date) - new Date(b.date));
+        
+        // 각 시점의 평균 매수가 계산
+        let currentQuantity = 0;
+        let totalInvestment = 0;
+        
+        for (let i = 0; i < updatedTrades.length; i++) {
+          const trade = updatedTrades[i];
+          
+          if (trade.type === 'buy') {
+            // 매수: 수량과 투자원금 증가
+            currentQuantity += parseFloat(trade.quantity);
+            totalInvestment += parseFloat(trade.price) * parseFloat(trade.quantity);
+          } else if (trade.type === 'sell') {
+            // 매도 거래에 avgBuyPrice 속성이 없으면 추가
+            if (trade.avgBuyPrice === undefined) {
+              const avgBuyPrice = currentQuantity > 0 ? totalInvestment / currentQuantity : 0;
+              updatedTrades[i] = {
+                ...trade,
+                avgBuyPrice: avgBuyPrice
+              };
+              needsUpdate = true;
+            }
+            
+            // 매도: 수량과 투자원금 감소 (평균매수가 기준)
+            const avgPrice = currentQuantity > 0 ? totalInvestment / currentQuantity : 0;
+            const sellAmount = parseFloat(trade.quantity) * avgPrice;
+            
+            currentQuantity -= parseFloat(trade.quantity);
+            totalInvestment = currentQuantity > 0 ? totalInvestment - sellAmount : 0;
+          }
+        }
+        
+        // 변경된 내용이 있으면 DB 업데이트
+        if (needsUpdate) {
+          const stockRef = ref(db, `users/${userId}/stocks/${ticker}`);
+          await set(stockRef, {
+            ...stock,
+            trades: updatedTrades
+          });
+          updatedCount++;
+        }
+      }
+      
+      if (updatedCount > 0) {
+        console.log(`${updatedCount}개 종목의 매도 거래 정보가 업데이트되었습니다.`);
+      }
+    } catch (error) {
+      console.error("매도 거래 정보 업데이트 중 오류 발생:", error);
+    }
+  };
 
   return (
     <div className="stock-table-container">
@@ -1766,10 +1878,10 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
             <td>{parseFloat(cashKRW.weight || 0).toFixed(2)}%</td>
             <td colSpan="3">
               <button 
-                className="btn btn-primary btn-sm"
-                onClick={() => handleCashModalOpen('KRW')}
+                className="btn btn-outline-primary me-2" 
+                onClick={handleCashButtonClick} // 직접 setShowCashModal(true) 대신 handleCashButtonClick 함수 호출
               >
-                현금관리
+                현금 관리
               </button>
             </td>
           </tr>
@@ -1896,13 +2008,13 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
                           <td>{Number(selectedStock.currentPrice).toLocaleString()}</td>
                           <td>
                             {trade.type === 'sell' 
-                              ? `실현손익: ${Number((trade.price - trade.avgBuyPrice) * trade.quantity).toLocaleString()}`
+                              ? `실현손익: ${Number(((trade.price - (trade.avgBuyPrice || 0)) * trade.quantity) || 0).toLocaleString()}`
                               : Number((selectedStock.currentPrice - trade.price) * trade.quantity).toLocaleString()
                             }
                           </td>
                           <td>
                             {trade.type === 'sell'
-                              ? `${((trade.price - trade.avgBuyPrice) / trade.avgBuyPrice * 100).toFixed(2)}%`
+                              ? `${(((trade.price - (trade.avgBuyPrice || 0)) / (trade.avgBuyPrice || 1) * 100) || 0).toFixed(2)}%`
                               : `${((selectedStock.currentPrice - trade.price) / trade.price * 100).toFixed(2)}%`
                           }
                           </td>
@@ -2196,14 +2308,12 @@ const StockTable = ({ stocks, onCashUpdate, onStocksUpdate }) => {
                 
                 {/* 현금 증감 내역 - 월별 드롭다운으로 변경 */}
                 <div className="d-flex justify-content-between align-items-center mb-3">
-                  {/* 빈 h6 태그 제거 */}
                   <div className="d-flex align-items-center">
-                    {/* 빈 label 태그 제거 */}
                     <select 
                       className="form-select form-select-sm" 
                       style={{ width: '150px' }}
                       value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
+                      onChange={handleMonthChange}
                     >
                       {Object.keys(cashHistory).length > 0 ? (
                         Object.keys(cashHistory)

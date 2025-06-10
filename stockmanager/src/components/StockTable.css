@@ -51,8 +51,8 @@
   background-color: white;
   padding: 20px;
   border-radius: 8px;
-  min-width: 400px;
-  width: 80%;
+  min-width: 720px;
+  width: 100%;
   max-width: 1000px;
 }
 
@@ -211,8 +211,8 @@
   background-color: white;
   padding: 20px;
   border-radius: 5px;
-  width: 80%;
-  max-width: 800px;
+  width: 100%;
+  max-width: 500px;
   max-height: none;
   overflow-y: auto;
 }

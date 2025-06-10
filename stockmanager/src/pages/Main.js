@@ -92,11 +92,29 @@ function Main() {
         >
           Table
         </button>
+        <button 
+          className={activeTab === 'sepa' ? 'active' : ''} 
+          onClick={() => setActiveTab('sepa')}
+        >
+          Sepa
+        </button>
       </div>
 
       <div className="tab-content">
         {activeTab === 'summary' && <Summary stocks={stocks} />}
         {activeTab === 'table' && <StockTable stocks={stocks} onCashUpdate={setCashAmount} onStocksUpdate={refreshStocks} />}
+        {activeTab === 'sepa' && (
+          <div className="sepa-container">
+            <iframe
+              src="https://elemraty-screener-v2-app-p89wad.streamlit.app/?embed=true"
+              title="Sepa"
+              width="100%"
+              height="2000px"
+              frameBorder="0"
+              style={{ border: 'none' }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
