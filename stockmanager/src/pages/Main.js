@@ -93,23 +93,23 @@ function Main() {
           Table
         </button>
         <button 
-          className={activeTab === 'sepa' ? 'active' : ''} 
-          onClick={() => setActiveTab('sepa')}
+          className={activeTab === 'chart' ? 'active' : ''} 
+          onClick={() => setActiveTab('chart')}
         >
-          Sepa
+          Chart
         </button>
       </div>
 
       <div className="tab-content">
         {activeTab === 'summary' && <Summary stocks={stocks} />}
         {activeTab === 'table' && <StockTable stocks={stocks} onCashUpdate={setCashAmount} onStocksUpdate={refreshStocks} />}
-        {activeTab === 'sepa' && (
-          <div className="sepa-container">
+        {activeTab === 'chart' && (
+          <div className="chart-container">
             <iframe
-              src="https://elemraty-screener-v2-app-p89wad.streamlit.app/?embed=true"
-              title="Sepa"
+              src="https://vgchart.xyz/?embed=true"
+              title="Chart"
               width="100%"
-              height="2000px"
+              height="1000px"
               frameBorder="0"
               style={{ border: 'none' }}
             />
